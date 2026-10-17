@@ -71,6 +71,7 @@ section h3{font-family:var(--display);font-weight:700;font-size:21px;margin:0 0 
 .trio div{padding:12px 12px 13px}
 .trio div+div{border-left:1px solid var(--line)}
 .trio small{display:block;color:var(--muted);font-size:13px}
+.trio b+small{font-size:11.5px;margin-top:1px}
 .trio b{font-size:17px;font-weight:700}
 .trio .good b{color:var(--mint)} .trio .bad b{color:var(--brick)}
 .note{font-size:14px;color:var(--muted);margin:10px 2px 0}
@@ -401,11 +402,14 @@ function inicioView(){
   const minM=addM(cfg.planDesde,-1), maxM=addM(sim.end||cfg.planDesde,4);
   const ings=cfg.ingresos.filter(x=>active(x,m)).slice().sort((a,b)=>(a.dia||40)-(b.dia||40));
   const recib=ings.filter(x=>pagos["i-"+x.id]).length;
+  const entro=ings.filter(x=>pagos["i-"+x.id]).reduce((t,x)=>t+(+x.m||0),0);
+  const salio=items.filter(x=>pagos[x.id]).reduce((t,x)=>t+(+x.m||0),0)+gastTot;
   const ingList = ings.length? ings.map(x=>`<label class="check ${pagos["i-"+x.id]?"done":""}"><input type="checkbox" data-pago="i-${esc(x.id)}" ${pagos["i-"+x.id]?"checked":""}><span class="t"><div>${esc(x.n)}</div>${x.dia?`<small>llega el día ${x.dia}</small>`:""}</span><span class="m num">${money(x.m)}</span></label>`).join("") : `<p class="empty">Agrega tus ingresos en Ajustes.</p>`;
   return `<section class="hero">${hero}<div class="road">${roadSVG(cfg,sim)}</div></section>
   <div class="monthbar"><button data-mes="-1" ${m<=minM?"disabled":""} aria-label="Mes anterior">‹</button><strong>${esc(mName(m))}</strong><button data-mes="1" ${m>=maxM?"disabled":""} aria-label="Mes siguiente">›</button></div>
   <section>
-    <div class="trio num"><div><small>Entra</small><b>${money(mp.ing)}</b></div><div><small>Sale (plan)</small><b>${money(mp.sale)}</b></div><div class="${mp.queda>=0?"good":"bad"}"><small>Te queda</small><b>${money(mp.queda)}</b></div></div>
+    <div class="trio num"><div><small>Entró</small><b>${money(entro)}</b><small>de ${money(mp.ing)}</small></div><div><small>Salió</small><b>${money(salio)}</b><small>de ${money(mp.sale)}</small></div><div class="${entro-salio>=0?"good":"bad"}"><small>Tienes</small><b>${money(entro-salio)}</b><small>plan: ${money(mp.queda)}</small></div></div>
+    <p class="note">Se suma solo lo que marcas: ingresos recibidos, pagos hechos y gastos anotados.</p>
     ${cash!=null?`<p class="note">En la cuenta deberías terminar el mes con <b class="num">${money(cash)}</b>${cfg.colchon?` (colchón mínimo ${money(cfg.colchon)})`:""}.</p>`:""}
     ${msg}
   </section>

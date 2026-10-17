@@ -7,6 +7,7 @@ App de finanzas personales en un solo archivo, `index.html`, sin build ni depend
 - Guardado: `localStorage` con la clave `plata-de-la-casa-v1` (`saveLocal`, `saveCfg`, `saveMonth`). Si existe `window.claude` (artifact de claude.ai) usa además su `db`; fuera de claude.ai ese bloque no hace nada.
 - Cálculo: `simulate(cfg, useAbonos)` proyecta mes a mes los créditos en cuotas (interés = saldo × tasa mensual; en el mes `fin` se paga el saldo completo); `monthPlan` arma lo que entra y sale en un mes; `cashPath` acumula el saldo de la cuenta.
 - Vistas: `inicioView`, `anotarView`, `deudasView`, `planView`, `planillaView` (tabla tipo Excel desde `planillaDatos()`, botón "Descargar en Excel" con `planillaXlsx()`, sin librerías); los eventos se conectan en `bind()`.
+- Inicio: los totales de arriba (Entró / Salió / Tienes) suman solo lo marcado (ingresos recibidos y pagos en `pagos`) más los gastos anotados; el plan del mes se muestra en chico.
 - Meses antes de `planDesde` (ej. el mes actual): `monthPlan` muestra la cuota normal de cada crédito en cuotas con saldo, aunque la simulación parta después.
 
 ## Modelo de `cfg`
