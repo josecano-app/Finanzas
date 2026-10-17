@@ -302,12 +302,14 @@ function emptyView(){
   return `<section class="hero"><h2>Empecemos.</h2><p class="sub">${tiene?"Hay un plan listo para cargar con tus ingresos, cuentas y deudas.":"Todavía no hay un plan guardado. Crea uno vacío y llena tus ingresos, cuentas y deudas en Ajustes."}</p></section>
   ${tiene?'<button class="primary" id="btnSeed">Cargar mi plan</button>':""}
   <button class="${tiene?"ghost":"primary"}" id="btnStart" style="${tiene?"width:100%;margin-top:10px":""}">Crear plan vacío</button>
-  <button class="linkish" id="btnRestore0">Restaurar desde un respaldo</button>`;
+  <button class="linkish" id="btnRestore0">Restaurar desde un respaldo</button>
+  <button class="linkish" id="btnPaste0">Pegar el texto de un respaldo</button>`;
 }
 function bindEmpty(){
   const b=$("#btnStart"); if(b) b.onclick=()=>{ S.cfg=clone(EMPTY); saveCfg(); render(); openAjustes(); };
   const sd=$("#btnSeed"); if(sd) sd.onclick=()=>{ S.cfg=clone(window.PLAN_INICIAL); saveCfg(); render(); toast("Plan cargado"); };
   const r=$("#btnRestore0"); if(r) r.onclick=pickBackup;
+  const pz=$("#btnPaste0"); if(pz) pz.onclick=pasteBackup;
 }
 /* ---------- respaldo ---------- */
 function downloadBackup(){
@@ -316,12 +318,20 @@ function downloadBackup(){
   a.download="cg-finanzas-respaldo-"+new Date().toISOString().slice(0,10)+".json"; document.body.appendChild(a); a.click();
   setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1000); toast("Respaldo descargado");
 }
+function aplicarRespaldo(texto){
+  try{ const j=JSON.parse(String(texto||"").trim()); if(!j.cfg||!Array.isArray(j.cfg.deudas)) throw 0;
+    S.cfg=j.cfg; S.movs=j.movs||{}; saveCfg(); Object.keys(S.movs).forEach(m=>saveMonth(m)); if($("#sheet").open) $("#sheet").close(); render(); toast("Respaldo restaurado"); }
+  catch(e){ toast("Ese archivo no es un respaldo de CG Finanzas"); }
+}
 function pickBackup(){
-  const i=document.createElement("input"); i.type="file"; i.accept="application/json,.json";
-  i.onchange=async()=>{ try{ const j=JSON.parse(await i.files[0].text()); if(!j.cfg||!Array.isArray(j.cfg.deudas)) throw 0;
-      S.cfg=j.cfg; S.movs=j.movs||{}; saveCfg(); Object.keys(S.movs).forEach(m=>saveMonth(m)); if($("#sheet").open) $("#sheet").close(); render(); toast("Respaldo restaurado"); }
-    catch(e){ toast("Ese archivo no es un respaldo de CG Finanzas"); } };
+  // Sin filtro de tipo (en iPhone deja el .json en gris) y dentro de la página (si no, Safari pierde el archivo elegido).
+  const i=document.createElement("input"); i.type="file"; i.style.display="none"; document.body.appendChild(i);
+  i.onchange=async()=>{ const f=i.files&&i.files[0]; i.remove(); if(f) aplicarRespaldo(await f.text()); };
   i.click();
+}
+function pasteBackup(){
+  const t=prompt("Pega aquí el texto del respaldo (abre el archivo .json, Seleccionar todo → Copiar):");
+  if(t) aplicarRespaldo(t);
 }
 
 function roadSVG(cfg, sim){
@@ -498,13 +508,13 @@ function openAjustes(){
       <h4>Plata en la cuenta</h4><p class="note" style="margin:0 0 8px">Cuánto tenías al cierre de ${esc(mName(c.saldoCuenta.mes))}.</p><input class="field num" id="aCuenta" inputmode="numeric" value="${Math.round(+c.saldoCuenta.monto||0).toLocaleString("es-CL")}">
       <p class="note">Las cuentas que tienen fecha de término se mantienen; edítalas aquí si cambian.</p>
       <h4>Respaldo</h4><p class="note" style="margin:0 0 8px">Tus datos se guardan en este teléfono. Descarga un respaldo de vez en cuando y úsalo para pasarlos a otro equipo.</p>
-      <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="ghost" id="aBackup">Descargar respaldo</button><button class="ghost" id="aRestore">Restaurar respaldo</button></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="ghost" id="aBackup">Descargar respaldo</button><button class="ghost" id="aRestore">Restaurar respaldo</button><button class="ghost" id="aPaste">Pegar respaldo</button></div>
       <div class="sheet-actions"><button class="ghost" id="aCancel">Cancelar</button><button class="primary" id="aSave">Guardar cambios</button></div>`;
     $("#sheetBody").querySelectorAll(".erow input").forEach(inp=>inp.onchange=()=>{ const r=inp.closest(".erow"); const it=c[r.dataset.k][+r.dataset.i]; const f=inp.dataset.f; it[f]= f==="n"?inp.value.trim(): parseMoney(inp.value)||(f==="dia"?null:0); });
     $("#sheetBody").querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ const [k,i]=b.dataset.rm.split("|"); c[k].splice(+i,1); draw(); });
     $("#sheetBody").querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{ c[b.dataset.add].push({id:uid(),n:"",m:0}); draw(); });
     $("#aCancel").onclick=()=>sheet.close();
-    $("#aBackup").onclick=downloadBackup; $("#aRestore").onclick=pickBackup;
+    $("#aBackup").onclick=downloadBackup; $("#aRestore").onclick=pickBackup; $("#aPaste").onclick=pasteBackup;
     $("#aSave").onclick=()=>{ c.colchon=parseMoney($("#aColchon").value); c.saldoCuenta.monto=parseMoney($("#aCuenta").value); S.cfg=c; saveCfg(); sheet.close(); render(); toast("Cambios guardados"); };
   };
   draw(); sheet.showModal();
