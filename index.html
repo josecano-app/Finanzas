@@ -335,9 +335,7 @@ function bindEmpty(){
 /* ---------- respaldo ---------- */
 function downloadBackup(){
   const data=JSON.stringify({app:"cg-finanzas",fecha:new Date().toISOString(),cfg:S.cfg,movs:S.movs},null,2);
-  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([data],{type:"application/json"}));
-  a.download="cg-finanzas-respaldo-"+new Date().toISOString().slice(0,10)+".json"; document.body.appendChild(a); a.click();
-  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1000); toast("Respaldo descargado");
+  entregarArchivo(new Blob([data],{type:"application/json"}),"cg-finanzas-respaldo-"+new Date().toISOString().slice(0,10)+".json");
 }
 function aplicarRespaldo(texto){
   try{ const j=JSON.parse(String(texto||"").trim()); if(!j.cfg||!Array.isArray(j.cfg.deudas)) throw 0;
@@ -473,9 +471,9 @@ function planView(){
     <p class="note">Antes de prepagar, pide al banco el monto exacto y la comisión, y que el abono acorte el plazo.</p></section>`;
 }
 
-function planillaView(){
-  const cfg=S.cfg, sim=simulate(cfg,true), cash=cashPath(cfg,sim), now=mk(new Date());
-  const meses=Object.keys(cash).sort(); if(!meses.length) return '<p class="empty">Aún no hay meses para mostrar.</p>';
+function planillaDatos(){
+  const cfg=S.cfg, sim=simulate(cfg,true), cash=cashPath(cfg,sim);
+  const meses=Object.keys(cash).sort();
   const P=Object.fromEntries(meses.map(m=>[m,monthPlan(cfg,m,sim)]));
   const sum=a=>a.reduce((x,y)=>x+y.m,0);
   const credito=m=>sum(P[m].cuotas.filter(x=>x.id.startsWith("c-")))+sum(P[m].extras);
@@ -483,33 +481,106 @@ function planillaView(){
   const fijosTot=m=>sum(P[m].fijos.map(x=>({m:+x.m||0})))+P[m].pres+credito(m);
   const saldoPrev=m=>m===meses[0]?(+cfg.saldoCuenta.monto||0):cash[addM(m,-1)];
   const real=m=>Object.values(spentBy(m)).reduce((a,b)=>a+b,0);
+  const val=(m,arr,id)=>{ const x=arr.find(y=>y.id===id); return x?(+x.m||0):0; };
+  const resumen=meses.map(m=>{ const ing=P[m].ing, fij=fijosTot(m), tar=tarjetas(m);
+    return {m, ing, fij, tar, sobra:ing-fij-tar, acum:cash[m], pct:ing?(tar+credito(m))/ing:0, real:real(m)}; });
+  const detalle=[]; const fila=(n,f,cls="")=>detalle.push({n,cls,vals:meses.map(f)}); const sec=n=>detalle.push({n,cls:"sec"});
+  sec("Ingresos"); fila("Saldo mes pasado",saldoPrev);
+  cfg.ingresos.forEach(x=>fila(x.n,m=>active(x,m)?(+x.m||0):0));
+  fila("Ingresos total",m=>P[m].ing,"tot"); sec("Gastos fijos");
+  cfg.presupuestos.forEach(x=>fila(x.n,()=>+x.m||0));
+  cfg.fijos.forEach(x=>fila(x.n,m=>active(x,m)?(+x.m||0):0));
+  cfg.deudas.filter(d=>d.tipo==="cuotas").forEach(d=>fila(d.n,m=>val(m,P[m].cuotas,"c-"+d.id)+val(m,P[m].extras,"x-"+d.id)));
+  fila("Total gastos fijos",fijosTot,"tot"); sec("Tarjetas y líneas");
+  cfg.deudas.filter(d=>d.tipo!=="cuotas").forEach(d=>fila(d.n,m=>val(m,P[m].cuotas,"r-"+d.id)));
+  fila("Total tarjetas y líneas",tarjetas,"tot"); fila("Gastos totales",m=>P[m].sale,"tot");
+  fila("Plata acumulada",m=>cash[m],"acc"); fila("Gastado real (anotado)",real);
+  return {meses, resumen, detalle, colchon:+cfg.colchon||0};
+}
+const RES_COLS=["Ingresos","Gastos fijos","Tarjetas y líneas","Me sobra","Acumulado","% en deudas","Gastado real"];
+function planillaView(){
+  const D=planillaDatos(), now=mk(new Date());
+  if(!D.meses.length) return '<p class="empty">Aún no hay meses para mostrar.</p>';
   const td=(m,v,cls="")=>`<td class="${cls}${m===now?" now":""}${!cls&&Math.round(v||0)===0?" z":""}">${money(v)}</td>`;
-  const head=`<thead><tr><th>${S.vistaXL==="resumen"?"Mes":"Concepto"}</th>`;
   let html;
   if(S.vistaXL==="resumen"){
-    const rows=meses.map(m=>{ const ing=P[m].ing, fij=fijosTot(m), tar=tarjetas(m), sobra=ing-fij-tar, pct=ing?(tar+credito(m))/ing:0;
-      return `<tr><td class="cap">${esc(mShort(m))}</td>${td(m,ing)}${td(m,fij)}${td(m,tar)}${td(m,sobra,sobra<0?"neg":"")}${td(m,cash[m],cash[m]<0?"neg":cash[m]<cfg.colchon?"low":"")}<td class="${pct>.35?"warn":""}${m===now?" now":""}">${Math.round(pct*100)}%</td>${td(m,real(m))}</tr>`; }).join("");
-    html=`<table>${head}<th>Ingresos</th><th>Gastos fijos</th><th>Tarjetas y líneas</th><th>Me sobra</th><th>Acumulado</th><th>% en deudas</th><th>Gastado real</th></tr></thead><tbody>${rows}</tbody></table>`;
+    const rows=D.resumen.map(r=>`<tr><td class="cap">${esc(mShort(r.m))}</td>${td(r.m,r.ing)}${td(r.m,r.fij)}${td(r.m,r.tar)}${td(r.m,r.sobra,r.sobra<0?"neg":"")}${td(r.m,r.acum,r.acum<0?"neg":r.acum<D.colchon?"low":"")}<td class="${r.pct>.35?"warn":""}${r.m===now?" now":""}">${Math.round(r.pct*100)}%</td>${td(r.m,r.real)}</tr>`).join("");
+    html=`<table><thead><tr><th>Mes</th>${RES_COLS.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`;
   } else {
-    const cols=meses.map(m=>`<th class="cap${m===now?" now":""}">${esc(mShort(m))}</th>`).join("");
-    const fila=(n,f,cls="")=>`<tr class="${cls}"><td>${esc(n)}</td>${meses.map(m=>td(m,f(m),cls==="acc"&&cash[m]<0?"neg":"")).join("")}</tr>`;
-    const sec=n=>`<tr class="sec"><td>${esc(n)}</td>${meses.map(()=>"<td></td>").join("")}</tr>`;
-    const val=(m,arr,id)=>{ const x=arr.find(y=>y.id===id); return x?(+x.m||0):0; };
-    let b=sec("Ingresos")+fila("Saldo mes pasado",saldoPrev);
-    cfg.ingresos.forEach(x=>b+=fila(x.n,m=>active(x,m)?(+x.m||0):0));
-    b+=fila("Ingresos total",m=>P[m].ing,"tot")+sec("Gastos fijos");
-    cfg.presupuestos.forEach(x=>b+=fila(x.n,()=>+x.m||0));
-    cfg.fijos.forEach(x=>b+=fila(x.n,m=>active(x,m)?(+x.m||0):0));
-    cfg.deudas.filter(d=>d.tipo==="cuotas").forEach(d=>b+=fila(d.n,m=>val(m,P[m].cuotas,"c-"+d.id)+val(m,P[m].extras,"x-"+d.id)));
-    b+=fila("Total gastos fijos",fijosTot,"tot")+sec("Tarjetas y líneas");
-    cfg.deudas.filter(d=>d.tipo!=="cuotas").forEach(d=>b+=fila(d.n,m=>val(m,P[m].cuotas,"r-"+d.id)));
-    b+=fila("Total tarjetas y líneas",tarjetas,"tot")+fila("Gastos totales",m=>P[m].sale,"tot")+fila("Plata acumulada",m=>cash[m],"acc")+fila("Gastado real (anotado)",real);
-    html=`<table>${head}${cols}</tr></thead><tbody>${b}</tbody></table>`;
+    const cols=D.meses.map(m=>`<th class="cap${m===now?" now":""}">${esc(mShort(m))}</th>`).join("");
+    const b=D.detalle.map(f=>f.cls==="sec" ? `<tr class="sec"><td>${esc(f.n)}</td>${D.meses.map(()=>"<td></td>").join("")}</tr>`
+      : `<tr class="${f.cls}"><td>${esc(f.n)}</td>${f.vals.map((v,k)=>td(D.meses[k],v,f.cls==="acc"&&v<0?"neg":"")).join("")}</tr>`).join("");
+    html=`<table><thead><tr><th>Concepto</th>${cols}</tr></thead><tbody>${b}</tbody></table>`;
   }
   return `<section><h3>Planilla</h3>
     <div class="seg"><button class="chip" data-xl="resumen" aria-pressed="${S.vistaXL==="resumen"}">Mes a mes</button><button class="chip" data-xl="detalle" aria-pressed="${S.vistaXL==="detalle"}">Detalle por cuenta</button></div>
     <div class="xl">${html}</div>
-    <p class="note">Desliza la tabla hacia el lado para ver más meses. ${S.vistaXL==="resumen"?"Amarillo: más del 35% del ingreso va a deudas · Rojo: saldo negativo · Recuadro: este mes.":"Los montos salen de tu plan (Ajustes y Plan); “Gastado real” es lo que anotas."}</p></section>`;
+    <p class="note">Desliza la tabla hacia el lado para ver más meses. ${S.vistaXL==="resumen"?"Amarillo: más del 35% del ingreso va a deudas · Rojo: saldo negativo · Recuadro: este mes.":"Los montos salen de tu plan (Ajustes y Plan); “Gastado real” es lo que anotas."}</p>
+    <button class="primary" id="btnExcel">Descargar en Excel</button></section>`;
+}
+
+/* ---------- Excel (.xlsx) sin librerías: XML + zip sin comprimir ---------- */
+const CRC=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=c&1?0xEDB88320^(c>>>1):c>>>1; t[n]=c>>>0; } return t; })();
+function crc32(b){ let c=0xFFFFFFFF; for(let i=0;i<b.length;i++) c=CRC[(c^b[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+function zipStore(files){
+  const enc=new TextEncoder(), parts=[], central=[]; let off=0;
+  for(const [name,txt] of files){
+    const nm=enc.encode(name), data=enc.encode(txt), crc=crc32(data);
+    const h=new DataView(new ArrayBuffer(30)); h.setUint32(0,0x04034b50,true); h.setUint16(4,20,true); h.setUint16(6,0x0800,true);
+    h.setUint32(14,crc,true); h.setUint32(18,data.length,true); h.setUint32(22,data.length,true); h.setUint16(26,nm.length,true);
+    parts.push(h,nm,data);
+    const c=new DataView(new ArrayBuffer(46)); c.setUint32(0,0x02014b50,true); c.setUint16(4,20,true); c.setUint16(6,20,true); c.setUint16(8,0x0800,true);
+    c.setUint32(16,crc,true); c.setUint32(20,data.length,true); c.setUint32(24,data.length,true); c.setUint16(28,nm.length,true); c.setUint32(42,off,true);
+    central.push(c,nm); off+=30+nm.length+data.length;
+  }
+  const size=central.reduce((a,x)=>a+x.byteLength,0);
+  const e=new DataView(new ArrayBuffer(22)); e.setUint32(0,0x06054b50,true); e.setUint16(8,files.length,true); e.setUint16(10,files.length,true); e.setUint32(12,size,true); e.setUint32(16,off,true);
+  return new Blob([...parts,...central,e],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+}
+function colL(i){ let s=""; i++; while(i>0){ const r=(i-1)%26; s=String.fromCharCode(65+r)+s; i=Math.floor((i-1)/26); } return s; }
+// estilos: 0 normal, 1 título, 2 encabezado, 3 monto, 4 monto negrita, 5 sección, 6 monto acumulado, 7 porcentaje, 8 texto negrita, 9 monto rojo
+const XL_STYLES=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="2"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0;[Red]-&quot;$&quot;#,##0"/><numFmt numFmtId="165" formatCode="0%"/></numFmts>
+<fonts count="5"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="16"/><color rgb="FF16302B"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><sz val="11"/><color rgb="FFC2412D"/><name val="Calibri"/></font></fonts>
+<fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF16302B"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF6EBD3"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDDF1E6"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF3F6F2"/></patternFill></fill></fills>
+<borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="10"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf fontId="1" applyFont="1" numFmtId="0" fillId="0" borderId="0" xfId="0"/><xf fontId="2" fillId="2" applyFont="1" applyFill="1" numFmtId="0" borderId="0" xfId="0"><alignment horizontal="center" wrapText="1" vertical="center"/></xf>
+<xf numFmtId="164" applyNumberFormat="1" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="3" fillId="5" applyNumberFormat="1" applyFont="1" applyFill="1" borderId="0" xfId="0"/><xf fontId="3" fillId="3" applyFont="1" applyFill="1" numFmtId="0" borderId="0" xfId="0"/>
+<xf numFmtId="164" fontId="3" fillId="4" applyNumberFormat="1" applyFont="1" applyFill="1" borderId="0" xfId="0"/><xf numFmtId="165" applyNumberFormat="1" fontId="0" fillId="0" borderId="0" xfId="0"/><xf fontId="3" applyFont="1" numFmtId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="4" applyNumberFormat="1" applyFont="1" fillId="0" borderId="0" xfId="0"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+function xlSheet(filas, anchos){
+  // filas: arreglo de arreglos de celdas {v, s} (v número o texto); fila 1 título, fila 3 encabezados
+  const x=v=>esc(v);
+  const rows=filas.map((cs,ri)=>`<row r="${ri+1}">${cs.map((c,ci)=>{ if(c==null||c.v==null||c.v==="") return c&&c.s?`<c r="${colL(ci)}${ri+1}" s="${c.s}"/>`:"";
+    const ref=colL(ci)+(ri+1); return typeof c.v==="number"?`<c r="${ref}" s="${c.s||0}"><v>${Math.round(c.v*10000)/10000}</v></c>`:`<c r="${ref}" s="${c.s||0}" t="inlineStr"><is><t>${x(c.v)}</t></is></c>`; }).join("")}</row>`).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetViews><sheetView workbookViewId="0"><pane xSplit="1" ySplit="3" topLeftCell="B4" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>
+<cols>${anchos.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join("")}</cols><sheetData>${rows}</sheetData></worksheet>`;
+}
+function planillaXlsx(){
+  const D=planillaDatos(), cap=t=>t.charAt(0).toUpperCase()+t.slice(1);
+  const hoy=new Date().toLocaleDateString("es-CL");
+  const r1=[[{v:"CG Finanzas · Mes a mes",s:1}],[{v:"Generado el "+hoy}],[{v:"Mes",s:2},...RES_COLS.map(c=>({v:c,s:2}))]];
+  D.resumen.forEach(r=>r1.push([{v:cap(mShort(r.m)),s:8},{v:r.ing,s:3},{v:r.fij,s:3},{v:r.tar,s:3},{v:r.sobra,s:r.sobra<0?9:3},{v:r.acum,s:6},{v:r.pct,s:7},{v:r.real,s:3}]));
+  const r2=[[{v:"CG Finanzas · Detalle por cuenta",s:1}],[{v:"Generado el "+hoy}],[{v:"Concepto",s:2},...D.meses.map(m=>({v:cap(mShort(m)),s:2}))]];
+  D.detalle.forEach(f=>{ if(f.cls==="sec") r2.push([{v:f.n,s:5},...D.meses.map(()=>({s:5}))]);
+    else { const s=f.cls==="tot"?4:f.cls==="acc"?6:3; r2.push([{v:f.n,s:f.cls?8:0},...f.vals.map(v=>({v:+v||0,s}))]); } });
+  return zipStore([
+    ["[Content_Types].xml",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`],
+    ["_rels/.rels",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ["xl/workbook.xml",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Mes a mes" sheetId="1" r:id="rId1"/><sheet name="Detalle" sheetId="2" r:id="rId2"/></sheets></workbook>`],
+    ["xl/_rels/workbook.xml.rels",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+    ["xl/styles.xml",XL_STYLES],
+    ["xl/worksheets/sheet1.xml",xlSheet(r1,[12,14,14,16,14,15,12,14])],
+    ["xl/worksheets/sheet2.xml",xlSheet(r2,[30,...D.meses.map(()=>13)])]
+  ]);
+}
+// En iPhone abre "Compartir" (Guardar en Archivos / abrir en Excel); si no se puede, descarga normal.
+async function entregarArchivo(blob,nombre){
+  try{ const f=new File([blob],nombre,{type:blob.type});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){ await navigator.share({files:[f],title:nombre}); return; } }
+  catch(e){ if(e&&e.name==="AbortError") return; }
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=nombre; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1000);
 }
 
 /* ---------- eventos ---------- */
@@ -529,6 +600,7 @@ function bind(){
   };
   document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ const m=S.mes; S.movs[m]=(S.movs[m]||[]).filter(x=>x.id!==b.dataset.del); saveMonth(m); render(); toast("Gasto borrado"); });
   document.querySelectorAll("[data-xl]").forEach(b=>b.onclick=()=>{ S.vistaXL=b.dataset.xl; render(); });
+  const bx=$("#btnExcel"); if(bx) bx.onclick=()=>{ try{ entregarArchivo(planillaXlsx(),"cg-finanzas-planilla-"+new Date().toISOString().slice(0,10)+".xlsx"); }catch(e){ toast("No se pudo crear el Excel"); } };
   document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>openDebt(b.dataset.edit));
   document.querySelectorAll("[data-ab]").forEach(inp=>{
     inp.onchange=()=>{ const [m,id]=inp.dataset.ab.split("|"); setAbono(m,id,parseMoney(inp.value)); };
