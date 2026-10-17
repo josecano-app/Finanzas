@@ -291,7 +291,8 @@ function monthPlan(cfg, m, sim){
   const row = sim.months.find(r=>r.m===m);
   const cuotas=[], extras=[];
   cfg.deudas.forEach(d=>{
-    if(d.tipo==="cuotas"){ const it=row&&row.items[d.id]; if(it&&it.pay>0) cuotas.push({id:"c-"+d.id,n:"Cuota "+d.n,m:it.pay,dia:d.dia}); if(it&&it.extra>0) extras.push({id:"x-"+d.id,n:"Abono extra "+d.n,m:it.extra,dia:d.dia}); }
+    if(d.tipo==="cuotas" && m<cfg.planDesde){ if((+d.saldo||0)>0 && (+d.cuota||0)>0) cuotas.push({id:"c-"+d.id,n:"Cuota "+d.n,m:+d.cuota,dia:d.dia}); }
+    else if(d.tipo==="cuotas"){ const it=row&&row.items[d.id]; if(it&&it.pay>0) cuotas.push({id:"c-"+d.id,n:"Cuota "+d.n,m:it.pay,dia:d.dia}); if(it&&it.extra>0) extras.push({id:"x-"+d.id,n:"Abono extra "+d.n,m:it.extra,dia:d.dia}); }
     else { const p=(d.pagosMes||{})[m]; if(p>0) cuotas.push({id:"r-"+d.id,n:"Pagar "+d.n,m:p,dia:d.dia}); }
   });
   const pres = cfg.presupuestos.reduce((a,x)=>a+(+x.m||0),0);
