@@ -221,7 +221,7 @@ const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto"
 const MES3 = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 const fmt = new Intl.NumberFormat("es-CL",{style:"currency",currency:"CLP",maximumFractionDigits:0});
 const $ = s => document.querySelector(s);
-const money = n => fmt.format(Math.round(n||0));
+const money = n => fmt.format(Math.round(n||0)||0);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
 const uid = () => Math.random().toString(36).slice(2,9);
